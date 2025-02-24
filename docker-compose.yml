@@ -1,0 +1,67 @@
+services:
+  api-gateway:
+    build:
+      context: ./api_gateway
+      dockerfile: Dockerfile
+    container_name: api-gateway
+    ports:
+      - "5000:5000"
+    depends_on:
+      mysql:
+        condition: service_healthy  # Ensure MySQL is ready before running migrations
+      auth-service:
+        condition: service_started
+    environment:
+      DATABASE_URL: "mysql+pymysql://root@mysql/air_sandwich_python"
+      AUTH_SERVICE_URL: "http://auth-service:5001"
+    networks:
+      - app_network
+    volumes:
+      - ./common_packages:/app/common_packages  # ✅ Mount error_lib into /app/common_packages inside the container
+    command: >
+      sh -c "pip install -e /app/common_packages && gunicorn -w 4 -b 0.0.0.0:5000 app:app"
+  auth-service:
+    build:
+      context: ./auth_service
+      dockerfile: Dockerfile
+    container_name: auth-service
+    ports:
+      - "5001:5001"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: "mysql+pymysql://root@mysql/air_sandwich_python"
+    networks:
+      - app_network
+    volumes:
+      - ./common_packages:/app/common_packages  # ✅ Mount error_lib into /app/common_packages inside the container
+    command: >
+      sh -c "pip install -e /app/common_packages && flask db upgrade && gunicorn -w 4 -b 0.0.0.0:5001 app:app"
+
+  mysql:
+    image: mysql:latest
+    container_name: mysql
+    restart: always
+    environment:
+      MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+      MYSQL_ROOT_USER: "root"
+      MYSQL_DATABASE: "air_sandwich_python"
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - app_network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  mysql_data:
+
+networks:
+  app_network:
+    driver: bridge
